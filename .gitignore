@@ -11,5 +11,5 @@ yarn.lock
 /publish.exe
 .vscode
 webdriver.json
-/cli/examples/custom_test
-
+crates/cli/examples
+examples/codegen
