@@ -191,11 +191,13 @@ pub fn add(module: &mut Module) -> Result<(), Error> {
     }
 
     if let Some(struct_) = structs.iter().next() {
-        bail!(
-            "generating a bindings section is currently incompatible with \
-             exporting a `struct` from the wasm file, cannot export `{}`",
-            struct_.name,
-        );
+        // bail!(
+        //     "generating a bindings section is currently incompatible with \
+        //      exporting a `struct` from the wasm file, cannot export `{}`",
+        //     struct_.name,
+        // );
+        println!("[Experimental] generation of struct {:#?}", struct_.name);
+        println!("{:#?}", section);
     }
 
     module.customs.add(section);
@@ -395,13 +397,14 @@ fn check_standard_export(export: &AuxExport) -> Result<(), Error> {
             );
         }
         AuxExportKind::Method { class, name, .. } => {
-            bail!(
-                "cannot export `{}::{}` method when \
+            println!(
+                "[Experimental] export `{}::{}` method when \
                  generating a standalone WebAssembly module with no \
                  JS glue",
                 class,
                 name
             );
+            Ok(()) 
         }
     }
 }
