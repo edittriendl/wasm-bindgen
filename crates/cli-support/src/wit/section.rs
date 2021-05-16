@@ -122,6 +122,7 @@ pub fn add(module: &mut Module) -> Result<(), Error> {
     }
 
     for (id, func) in nonstandard.adapters.iter() {
+        let mut standard_wit = true;
         let instructions = match &func.kind {
             AdapterKind::Local { instructions } => instructions,
             AdapterKind::Import { .. } => continue,
@@ -130,12 +131,25 @@ pub fn add(module: &mut Module) -> Result<(), Error> {
             wit_walrus::FuncKind::Local(i) => i,
             _ => unreachable!(),
         };
-
+        
+        println!("{:#?}", instructions);
         for instruction in instructions {
-            result.push(
+            if let Some(instr) = 
                 translate_instruction(instruction, &us2walrus, module)
-                    .with_context(|| adapter_context(*id))?,
-            );
+                .with_context(|| adapter_context(*id))?
+            {
+                result.push(instr);
+            }
+            else {
+                standard_wit = false;
+                break;
+            }
+        }
+
+        if !standard_wit {
+            println!("Incomplete function {:#?}", export_map.get(&func.id).unwrap());
+            println!("Original instruction {:#?}", instructions);
+            println!("Generated instruction {:#?}", result);
         }
     }
 
@@ -197,7 +211,7 @@ pub fn add(module: &mut Module) -> Result<(), Error> {
         //     struct_.name,
         // );
         println!("[Experimental] generation of struct {:#?}", struct_.name);
-        println!("{:#?}", section);
+        // println!("{:#?}", section);
     }
 
     module.customs.add(section);
@@ -208,17 +222,17 @@ fn translate_instruction(
     instr: &InstructionData,
     us2walrus: &HashMap<AdapterId, wit_walrus::FuncId>,
     module: &Module,
-) -> Result<wit_walrus::Instruction, Error> {
+) -> Result<Option<wit_walrus::Instruction>, Error> {
     use Instruction::*;
 
     match &instr.instr {
-        Standard(s) => Ok(s.clone()),
+        Standard(s) => Ok(Some(s.clone())),
         CallAdapter(id) => {
             let id = us2walrus[id];
-            Ok(wit_walrus::Instruction::CallAdapter(id))
+            Ok(Some(wit_walrus::Instruction::CallAdapter(id)))
         }
         CallExport(e) => match module.exports.get(*e).item {
-            walrus::ExportItem::Function(f) => Ok(wit_walrus::Instruction::CallCore(f)),
+            walrus::ExportItem::Function(f) => Ok(Some(wit_walrus::Instruction::CallCore(f))),
             _ => bail!("can only call exported functions"),
         },
         CallTableElement(e) => {
@@ -226,35 +240,41 @@ fn translate_instruction(
             let id = entry
                 .func
                 .ok_or_else(|| anyhow!("function table wasn't filled in a {}", e))?;
-            Ok(wit_walrus::Instruction::CallCore(id))
+            Ok(Some(wit_walrus::Instruction::CallCore(id)))
         }
         StringToMemory {
             mem,
             malloc,
             realloc: _,
-        } => Ok(wit_walrus::Instruction::StringToMemory {
+        } => Ok(Some(wit_walrus::Instruction::StringToMemory {
             mem: *mem,
             malloc: *malloc,
-        }),
+        })),
         StoreRetptr { .. } | LoadRetptr { .. } | Retptr { .. } => {
-            bail!("return pointers aren't supported in wasm interface types");
+            // bail!("return pointers aren't supported in wasm interface types");
+            Ok(None)
         }
         I32FromBool | BoolFromI32 => {
-            bail!("booleans aren't supported in wasm interface types");
+            // bail!("booleans aren't supported in wasm interface types");
+            Ok(None)
         }
         I32FromStringFirstChar | StringFromChar => {
-            bail!("chars aren't supported in wasm interface types");
+            // bail!("chars aren't supported in wasm interface types");
+            Ok(None)
         }
         I32FromExternrefOwned | I32FromExternrefBorrow | ExternrefLoadOwned | TableGet => {
-            bail!("externref pass failed to sink into wasm module");
+            // bail!("externref pass failed to sink into wasm module");
+            Ok(None)
         }
         I32FromExternrefRustOwned { .. }
         | I32FromExternrefRustBorrow { .. }
         | RustFromI32 { .. } => {
-            bail!("rust types aren't supported in wasm interface types");
+            // bail!("rust types aren't supported in wasm interface types");
+            Ok(None)
         }
         I32Split64 { .. } | I64FromLoHi { .. } => {
-            bail!("64-bit integers aren't supported in wasm-bindgen");
+            // bail!("64-bit integers aren't supported in wasm-bindgen");
+            Ok(None)
         }
         I32SplitOption64 { .. }
         | I32FromOptionExternref { .. }
@@ -275,16 +295,20 @@ fn translate_instruction(
         | OptionCharFromI32
         | OptionEnumFromI32 { .. }
         | Option64FromI32 { .. } => {
-            bail!("optional types aren't supported in wasm bindgen");
+            // bail!("optional types aren't supported in wasm bindgen");
+            Ok(None)
         }
         MutableSliceToMemory { .. } | VectorToMemory { .. } | VectorLoad { .. } | View { .. } => {
-            bail!("vector slices aren't supported in wasm interface types yet");
+            // bail!("vector slices aren't supported in wasm interface types yet");
+            Ok(None)
         }
         CachedStringLoad { .. } => {
-            bail!("cached strings aren't supported in wasm interface types");
+            // bail!("cached strings aren't supported in wasm interface types");
+            Ok(None)
         }
         StackClosure { .. } => {
-            bail!("closures aren't supported in wasm interface types");
+            // bail!("closures aren't supported in wasm interface types");
+            Ok(None)
         }
     }
 }
@@ -365,46 +389,46 @@ fn check_standard_export(export: &AuxExport) -> Result<(), Error> {
     match &export.kind {
         AuxExportKind::Function(_) => Ok(()),
         AuxExportKind::Constructor(name) => {
-            bail!(
-                "cannot export `{}` constructor function when generating \
-                 a standalone WebAssembly module with no JS glue",
-                name,
-            );
-        }
-        AuxExportKind::Getter { class, field, .. } => {
-            bail!(
-                "cannot export `{}::{}` getter function when generating \
-                 a standalone WebAssembly module with no JS glue",
-                class,
-                field,
-            );
-        }
-        AuxExportKind::Setter { class, field, .. } => {
-            bail!(
-                "cannot export `{}::{}` setter function when generating \
-                 a standalone WebAssembly module with no JS glue",
-                class,
-                field,
-            );
-        }
-        AuxExportKind::StaticFunction { class, name } => {
-            bail!(
-                "cannot export `{}::{}` static function when \
-                 generating a standalone WebAssembly module with no \
-                 JS glue",
-                class,
+            println!(
+                "[Experimental] export `{}` constructor function when generating \
+                    a standalone WebAssembly module",
                 name
             );
+            Ok(())
+        }
+        AuxExportKind::Getter { class, field, .. } => {
+            println!(
+                "[Experimental] export `{}::{}` getter function when generating \
+                 a standalone WebAssembly module with no JS glue",
+                class, field,
+            );
+            Ok(())
+        }
+        AuxExportKind::Setter { class, field, .. } => {
+            println!(
+                "[Experimental] export `{}::{}` setter function when generating \
+                 a standalone WebAssembly module with no JS glue",
+                class, field,
+            );
+            Ok(())
+        }
+        AuxExportKind::StaticFunction { class, name } => {
+            println!(
+                "[Experimental] export `{}::{}` static function when \
+                 generating a standalone WebAssembly module with no \
+                 JS glue",
+                class, name
+            );
+            Ok(())
         }
         AuxExportKind::Method { class, name, .. } => {
             println!(
                 "[Experimental] export `{}::{}` method when \
                  generating a standalone WebAssembly module with no \
                  JS glue",
-                class,
-                name
+                class, name
             );
-            Ok(()) 
+            Ok(())
         }
     }
 }

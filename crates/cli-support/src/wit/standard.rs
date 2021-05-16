@@ -350,11 +350,16 @@ impl AdapterType {
 
             AdapterType::I32 => wit_walrus::ValType::I32,
             AdapterType::I64 => wit_walrus::ValType::I64,
+            // AdapterType::Option(_)
+            // | AdapterType::Function
+            // | AdapterType::Struct(_)
+            // | AdapterType::Bool
+            // | AdapterType::Vector(_) => return None,
             AdapterType::Option(_)
             | AdapterType::Function
             | AdapterType::Struct(_)
             | AdapterType::Bool
-            | AdapterType::Vector(_) => return None,
+            | AdapterType::Vector(_) => wit_walrus::ValType::I32,
         })
     }
 
