@@ -8,6 +8,7 @@ use std::mem;
 use std::path::{Path, PathBuf};
 use std::str;
 use walrus::Module;
+use std::io::prelude::*;
 
 pub(crate) const PLACEHOLDER_MODULE: &str = "__wbindgen_placeholder__";
 
@@ -20,7 +21,7 @@ mod js;
 mod multivalue;
 mod throw2unreachable;
 pub mod wasm2es6js;
-mod wit;
+pub mod wit;
 
 pub struct Bindgen {
     input: Input,
@@ -34,6 +35,7 @@ pub struct Bindgen {
     remove_name_section: bool,
     remove_producers_section: bool,
     emit_start: bool,
+    json_aux: bool,
     // Experimental support for weakrefs, an upcoming ECMAScript feature.
     // Currently only enable-able through an env var.
     weak_refs: bool,
@@ -50,6 +52,7 @@ pub struct Output {
     module: walrus::Module,
     stem: String,
     generated: Generated,
+    optional: Option<String>,
 }
 
 enum Generated {
@@ -109,6 +112,7 @@ impl Bindgen {
             remove_name_section: false,
             remove_producers_section: false,
             emit_start: true,
+            json_aux: false,
             weak_refs: env::var("WASM_BINDGEN_WEAKREF").is_ok(),
             threads: threads_config(),
             externref: externref || wasm_interface_types,
@@ -116,6 +120,11 @@ impl Bindgen {
             wasm_interface_types,
             encode_into: EncodeInto::Test,
         }
+    }
+
+    pub fn json_aux(&mut self, enable: bool) -> &mut Bindgen {
+        self.json_aux = enable;
+        self
     }
 
     pub fn input_path<P: AsRef<Path>>(&mut self, path: P) -> &mut Bindgen {
@@ -424,8 +433,9 @@ impl Bindgen {
         //
         // Otherwise we execute the JS generation passes to actually emit
         // JS/TypeScript/etc. The output here is unused in wasm interfac
+        let mut aux = String::new();
         let generated = if self.wasm_interface_types {
-            wit::section::add(&mut module)
+            aux = wit::section::add(&mut module)
                 .context("failed to generate a standard interface types section")?;
             Generated::InterfaceTypes
         } else {
@@ -452,11 +462,22 @@ impl Bindgen {
             })
         };
 
-        Ok(Output {
-            module,
-            stem: stem.to_string(),
-            generated,
-        })
+        if self.json_aux {
+            Ok(Output {
+                module,
+                stem: stem.to_string(),
+                generated,
+                optional: Some(aux),
+            })
+        }
+        else {
+            Ok(Output {
+                module,
+                stem: stem.to_string(),
+                generated,
+                optional: None,
+            })
+        }
     }
 
     fn local_module_name(&self, module: &str) -> String {
@@ -622,9 +643,19 @@ impl Output {
         self._emit(out_dir.as_ref())
     }
 
+    fn _emit_optional(&self, out_dir: &Path) -> Result<(), Error> {
+        use std::fs::File;
+        if self.optional == None { return Ok(()); }
+        let out = String::from(self.optional.as_ref().unwrap());
+        let json_name = format!("{}.json", self.stem);
+        let mut f = File::create(out_dir.join(json_name))?;
+        f.write_all(out.as_bytes())?;
+        Ok(())
+    }
+
     fn _emit(&mut self, out_dir: &Path) -> Result<(), Error> {
         let wasm_name = match &self.generated {
-            Generated::InterfaceTypes => self.stem.clone(),
+            Generated::InterfaceTypes => format!("{}", self.stem), 
             Generated::Js(_) => format!("{}_bg", self.stem),
         };
         let wasm_path = out_dir.join(&wasm_name).with_extension("wasm");
@@ -634,7 +665,10 @@ impl Output {
             .with_context(|| format!("failed to write `{}`", wasm_path.display()))?;
 
         let gen = match &self.generated {
-            Generated::InterfaceTypes => return Ok(()),
+            Generated::InterfaceTypes => {
+                self._emit_optional(out_dir)?;
+                return Ok(())
+            },
             Generated::Js(gen) => gen,
         };
 

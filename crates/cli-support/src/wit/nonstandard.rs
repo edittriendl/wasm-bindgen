@@ -4,6 +4,7 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use walrus::TypedCustomSectionId;
+use serde::{Serialize, Deserialize};
 
 /// A synthetic custom section which is not standardized, never will be, and
 /// cannot be serialized or parsed. This is synthesized from all of the
@@ -61,7 +62,7 @@ pub struct WasmBindgenAux {
 
 pub type WasmBindgenAuxId = TypedCustomSectionId<WasmBindgenAux>;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct AuxExport {
     /// When generating errors about this export, a helpful name to remember it
     /// by.
@@ -75,6 +76,8 @@ pub struct AuxExport {
     pub kind: AuxExportKind,
     /// Whether typescript bindings should be generated for this export.
     pub generate_typescript: bool,
+    /// In C we need signature to generate bindings.
+    pub signature: Option<(Vec<String>, Vec<String>)>,
 }
 
 /// All possible kinds of exports from a wasm module.
@@ -93,7 +96,7 @@ pub struct AuxExport {
 /// sort of webidl import to customize behavior or something like that. In any
 /// case this doesn't feel quite right in terms of priviledge separation, so
 /// we'll want to work on this. For now though it works.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum AuxExportKind {
     /// A free function that's just listed on the exported module
     Function(String),

@@ -457,6 +457,7 @@ impl<'a> Context<'a> {
                 arg_names: Some(export.function.arg_names),
                 kind,
                 generate_typescript: export.function.generate_typescript,
+                signature: None,
             },
         );
         Ok(())
@@ -811,6 +812,7 @@ impl<'a> Context<'a> {
                         consumed: false,
                     },
                     generate_typescript: field.generate_typescript,
+                    signature: None,
                 },
             );
 
@@ -838,6 +840,7 @@ impl<'a> Context<'a> {
                         consumed: false,
                     },
                     generate_typescript: field.generate_typescript,
+                    signature: None,
                 },
             );
         }
@@ -1068,6 +1071,7 @@ impl<'a> Context<'a> {
                 arg_names: None,
                 kind,
                 generate_typescript: true,
+                signature: None,
             };
             assert!(self.aux.export_map.insert(id, export).is_none());
         }

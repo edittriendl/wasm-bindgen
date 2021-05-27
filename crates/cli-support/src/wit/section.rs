@@ -24,7 +24,7 @@ use anyhow::{anyhow, bail, Context, Error};
 use std::collections::HashMap;
 use walrus::Module;
 
-pub fn add(module: &mut Module) -> Result<(), Error> {
+pub fn add(module: &mut Module) -> Result<String, Error> {
     let nonstandard = module
         .customs
         .delete_typed::<NonstandardWitSection>()
@@ -36,7 +36,7 @@ pub fn add(module: &mut Module) -> Result<(), Error> {
         local_modules,
         snippets,
         package_jsons,
-        export_map,
+        mut export_map,
         import_map,
         imports_with_catch,
         imports_with_variadic,
@@ -77,6 +77,25 @@ pub fn add(module: &mut Module) -> Result<(), Error> {
         }
         let params = translate_tys(&func.params).context(adapter_context(*us))?;
         let results = translate_tys(&func.results).context(adapter_context(*us))?;
+        // In C we need signatures
+        // So add function types information in JSON file
+        let params_str = func.params
+                        .iter()
+                        .map(|s| String::from(s))
+                        .collect();
+        let results_str = func.results
+                        .iter()
+                        .map(|s| String::from(s))
+                        .collect();
+        
+        let aux_export_item = export_map.get_mut(us).unwrap();
+        match &aux_export_item.kind {
+            AuxExportKind::Function(_)
+            | AuxExportKind::Constructor(_) => (),
+            _ => {
+                aux_export_item.signature = Some((params_str, results_str));
+            },
+        }
         let ty = section.types.add(params, results);
         let walrus = match &func.kind {
             AdapterKind::Local { .. } => section.funcs.add_local(ty, Vec::new()),
@@ -132,7 +151,6 @@ pub fn add(module: &mut Module) -> Result<(), Error> {
             _ => unreachable!(),
         };
         
-        println!("{:#?}", instructions);
         for instruction in instructions {
             if let Some(instr) = 
                 translate_instruction(instruction, &us2walrus, module)
@@ -204,18 +222,34 @@ pub fn add(module: &mut Module) -> Result<(), Error> {
         );
     }
 
-    if let Some(struct_) = structs.iter().next() {
-        // bail!(
-        //     "generating a bindings section is currently incompatible with \
-        //      exporting a `struct` from the wasm file, cannot export `{}`",
-        //     struct_.name,
-        // );
+    let mut struct_aux = HashMap::<String, Vec<&AuxExport>>::new();
+    for struct_ in structs.iter() {
         println!("[Experimental] generation of struct {:#?}", struct_.name);
-        // println!("{:#?}", section);
+        for (_, aux_export) in export_map.iter() {
+            let class = match &aux_export.kind {
+                AuxExportKind::Method { class, .. } 
+                | AuxExportKind::StaticFunction { class, .. }=> String::from(class), 
+                _ => String::new(),
+            };
+            if class == struct_.name {
+                let struct_export_vec = match struct_aux.get_mut(&class) {
+                    Some(s) => s,
+                    None => {
+                        struct_aux.insert(String::from(&class), Vec::new());
+                        struct_aux.get_mut(&class).unwrap()
+                    },
+                };
+                struct_export_vec.push(aux_export);
+            }
+        }
     }
 
     module.customs.add(section);
-    Ok(())
+    // let export_vec:Vec<AuxExport> = export_map.into_iter()
+    //     .map(|(_id, export)| export)
+    //     .collect();
+    let export_vec_json = serde_json::to_string(&struct_aux)?;
+    Ok(export_vec_json)
 }
 
 fn translate_instruction(
@@ -250,6 +284,13 @@ fn translate_instruction(
             mem: *mem,
             malloc: *malloc,
         })),
+        RustFromI32 { .. } => {
+            Ok(Some(wit_walrus::Instruction::WasmToInt {
+                input: walrus::ValType::I32,
+                output: wit_walrus::ValType::S32,
+                trap: false,
+            }))
+        },
         StoreRetptr { .. } | LoadRetptr { .. } | Retptr { .. } => {
             // bail!("return pointers aren't supported in wasm interface types");
             Ok(None)
@@ -267,8 +308,7 @@ fn translate_instruction(
             Ok(None)
         }
         I32FromExternrefRustOwned { .. }
-        | I32FromExternrefRustBorrow { .. }
-        | RustFromI32 { .. } => {
+        | I32FromExternrefRustBorrow { .. } => {
             // bail!("rust types aren't supported in wasm interface types");
             Ok(None)
         }
@@ -440,4 +480,31 @@ fn translate_tys(tys: &[AdapterType]) -> Result<Vec<wit_walrus::ValType>, Error>
                 .ok_or_else(|| anyhow!("type {:?} isn't supported in standard interface types", ty))
         })
         .collect()
+}
+
+impl From<&AdapterType> for String {
+    fn from(adapter_type: &AdapterType) -> Self {
+        match adapter_type {
+            AdapterType::S8 => String::from("s8"),
+            AdapterType::S16 => String::from("s16"),
+            AdapterType::S32 => String::from("int32_t"),
+            AdapterType::S64 => String::from("int64_t"),
+            AdapterType::U8 => String::from("u8"),
+            AdapterType::U16 => String::from("u16"),
+            AdapterType::U32 => String::from("u32"),
+            AdapterType::U64 => String::from("u64"),
+            AdapterType::F32 => String::from("float32_t"),
+            AdapterType::F64 => String::from("float64_t"),
+            AdapterType::String => String::from("char *"),
+            AdapterType::Externref => String::from("externref"),
+            AdapterType::Bool => String::from("bool"),
+            AdapterType::I32 => String::from("int32_t"),
+            AdapterType::I64 => String::from("int64_t"),
+            AdapterType::Vector(_) => String::from("vec"),
+            AdapterType::Option(_) => String::from("option"),
+            AdapterType::Struct(s) => format!("{}", s),
+            AdapterType::NamedExternref(_) => String::from("namedexternref"),
+            AdapterType::Function => String::from("function"),
+        }
+    }
 }
