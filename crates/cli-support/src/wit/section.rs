@@ -485,14 +485,14 @@ fn translate_tys(tys: &[AdapterType]) -> Result<Vec<wit_walrus::ValType>, Error>
 impl From<&AdapterType> for String {
     fn from(adapter_type: &AdapterType) -> Self {
         match adapter_type {
-            AdapterType::S8 => String::from("s8"),
-            AdapterType::S16 => String::from("s16"),
+            AdapterType::S8 => String::from("int8_t"),
+            AdapterType::S16 => String::from("int16_t"),
             AdapterType::S32 => String::from("int32_t"),
             AdapterType::S64 => String::from("int64_t"),
-            AdapterType::U8 => String::from("u8"),
-            AdapterType::U16 => String::from("u16"),
-            AdapterType::U32 => String::from("u32"),
-            AdapterType::U64 => String::from("u64"),
+            AdapterType::U8 => String::from("uint8_t"),
+            AdapterType::U16 => String::from("uint16_t"),
+            AdapterType::U32 => String::from("uint32_t"),
+            AdapterType::U64 => String::from("uint64_t"),
             AdapterType::F32 => String::from("float32_t"),
             AdapterType::F64 => String::from("float64_t"),
             AdapterType::String => String::from("char *"),
